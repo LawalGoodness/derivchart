@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#0f1318"/>
+  <rect x="41" y="41" width="430" height="430" rx="51" fill="#141920" stroke="#1e2730" stroke-width="2"/>
+  <!-- Candlestick chart icon -->
+  <!-- Green candle -->
+  <line x1="143" y1="113" x2="143" y2="282" stroke="#00e676" stroke-width="8"/>
+  <rect x="113" y="143" width="61" height="102" fill="#00e676" rx="2"/>
+  <!-- Red candle -->
+  <line x1="256" y1="143" x2="256" y2="369" stroke="#ff3d5a" stroke-width="8"/>
+  <rect x="225" y="179" width="61" height="113" fill="#ff3d5a" rx="2"/>
+  <!-- Green candle 2 -->
+  <line x1="369" y1="102" x2="369" y2="297" stroke="#00e676" stroke-width="8"/>
+  <rect x="338" y="128" width="61" height="123" fill="#00e676" rx="2"/>
+  <!-- D label -->
+  <text x="256" y="451" font-family="monospace" font-weight="bold" font-size="72" fill="#00c7ff" text-anchor="middle">DERIV</text>
+</svg>

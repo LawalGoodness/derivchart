@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DerivChart">
+<meta name="theme-color" content="#0f1318">
+<meta name="description" content="Live Deriv candlestick chart with zone alerts">
+<title>Deriv Live Chart</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.svg">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Oxanium:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0a0d12; --surface:#0f1318; --panel:#141920; --border:#1e2730;
+    --accent:#00c7ff; --green:#00e676; --red:#ff3d5a; --text:#e0eaf5;
+    --muted:#4a5a70; --gold:#ffc400; --orange:#ff9500;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  /* Prevent text selection and callouts on long-press */
+  *{ -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  input, textarea { -webkit-user-select:text; user-select:text; }
+  body{
+    background:var(--bg);color:var(--text);font-family:'Oxanium',sans-serif;
+    height:100vh; height:100dvh;
+    display:flex;flex-direction:column;overflow:hidden;
+    /* Safe area for notch/rounded corners */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  /* Prevent elastic bounce scroll on iOS */
+  html { overflow:hidden; position:fixed; width:100%; }
+
+  /* TOP BAR */
+  #topbar{display:flex;align-items:center;gap:10px;padding:7px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;z-index:10;flex-wrap:wrap;}
+  #logo{font-size:17px;font-weight:700;letter-spacing:2px;color:var(--accent);}
+  #logo span{color:var(--text);}
+  .sym-btn{background:var(--panel);border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:4px;cursor:pointer;font-family:'Oxanium',sans-serif;font-size:11px;font-weight:600;transition:all .15s;}
+  .sym-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .sym-btn.active{background:rgba(0,199,255,.12);border-color:var(--accent);color:var(--accent);}
+  #ohlc-bar{display:flex;gap:12px;align-items:center;margin-left:auto;font-family:'Share Tech Mono',monospace;font-size:11px;}
+  .ohlc-item{display:flex;flex-direction:column;align-items:flex-end;}
+  .ohlc-label{font-size:8px;color:var(--muted);letter-spacing:1px;}
+  .ohlc-val.up{color:var(--green);}.ohlc-val.down{color:var(--red);}.ohlc-val.neutral{color:var(--text);}
+  #status-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+  #status-dot.live{background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 1.5s infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  #status-text{font-size:11px;color:var(--muted);}
+
+  /* TOOLBAR */
+  #toolbar{display:flex;align-items:center;gap:5px;padding:5px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
+  .tool-label{font-size:10px;color:var(--muted);letter-spacing:1px;margin-right:3px;}
+  .tool-btn{display:flex;align-items:center;gap:5px;background:var(--panel);border:1px solid var(--border);color:var(--muted);padding:4px 11px;border-radius:4px;cursor:pointer;font-family:'Oxanium',sans-serif;font-size:11px;font-weight:600;transition:all .15s;white-space:nowrap;}
+  .tool-btn:hover{border-color:var(--gold);color:var(--gold);}
+  .tool-btn.active{background:rgba(255,196,0,.1);border-color:var(--gold);color:var(--gold);}
+  .tool-btn svg{width:13px;height:13px;}
+  .color-swatch{width:17px;height:17px;border-radius:3px;border:2px solid transparent;cursor:pointer;transition:border-color .15s;}
+  .color-swatch:hover,.color-swatch.selected{border-color:var(--text);}
+  .tool-sep{width:1px;height:20px;background:var(--border);margin:0 4px;}
+
+  /* ZONE BUTTON */
+  #btn-zone{border-color:var(--border);}
+  #btn-zone:hover{border-color:#a78bfa;color:#a78bfa;}
+  #btn-zone.active{background:rgba(167,139,250,.12);border-color:#a78bfa;color:#a78bfa;}
+
+  /* ZONE PANEL */
+  #zone-panel{
+    display:none;
+    flex-direction:column;
+    gap:0;
+    background:var(--surface);
+    border-bottom:1px solid var(--border);
+    flex-shrink:0;
+    overflow:hidden;
+    animation: slideDown .2s ease;
+  }
+  #zone-panel.open{display:flex;}
+  @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+
+  .zone-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:7px 16px;
+    border-bottom:1px solid var(--border);
+    font-family:'Share Tech Mono',monospace;
+    font-size:11px;
+  }
+  .zone-row:last-child{border-bottom:none;}
+
+  .zone-dot{width:11px;height:11px;border-radius:2px;flex-shrink:0;}
+  .zone-name{width:60px;font-weight:700;letter-spacing:.5px;}
+  .zone-name.green{color:var(--green);}
+  .zone-name.orange{color:var(--orange);}
+  .zone-name.red{color:var(--red);}
+
+  .zone-desc{font-size:10px;color:var(--muted);width:240px;}
+
+  .zone-set-btn{
+    background:var(--panel);border:1px solid var(--border);
+    color:var(--muted);padding:3px 10px;border-radius:3px;
+    cursor:pointer;font-family:'Oxanium',sans-serif;font-size:10px;font-weight:600;
+    transition:all .15s;
+  }
+  .zone-set-btn:hover{border-color:var(--text);color:var(--text);}
+  .zone-set-btn.drawing{animation:blinkBtn 0.6s infinite;}
+  @keyframes blinkBtn{0%,100%{opacity:1}50%{opacity:0.4}}
+
+  .zone-price-display{
+    font-size:11px;
+    font-weight:700;
+    min-width:90px;
+    padding:2px 8px;
+    border-radius:3px;
+    background:var(--panel);
+    text-align:center;
+  }
+
+  .zone-clear-btn{
+    background:none;border:1px solid var(--border);color:var(--muted);
+    padding:2px 7px;border-radius:3px;cursor:pointer;font-size:10px;
+    font-family:'Oxanium',sans-serif;transition:all .15s;
+  }
+  .zone-clear-btn:hover{border-color:var(--red);color:var(--red);}
+
+  .zone-status-badge{
+    padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;
+    letter-spacing:.5px;text-transform:uppercase;
+  }
+  .badge-armed{background:rgba(0,230,118,.12);color:var(--green);}
+  .badge-off{background:var(--panel);color:var(--muted);}
+
+  .zone-toggle{
+    margin-left:auto;
+    background:var(--panel);border:1px solid var(--border);
+    color:var(--muted);padding:3px 9px;border-radius:3px;
+    cursor:pointer;font-family:'Oxanium',sans-serif;font-size:9px;font-weight:600;
+    transition:all .15s;letter-spacing:.5px;
+  }
+  .zone-toggle.on{background:rgba(0,230,118,.1);border-color:var(--green);color:var(--green);}
+
+  /* CHART */
+  #chart-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;padding:7px 10px 0;}
+  #chart-container{flex:1;position:relative;overflow:hidden;}
+  #chart-svg{width:100%;height:100%;display:block;}
+
+  /* ZONE BAND OVERLAYS (shaded area between two lines) */
+  .zone-band{position:absolute;left:0;right:72px;pointer-events:none;z-index:2;}
+
+  /* TOOLTIP */
+  #tooltip{position:absolute;background:rgba(14,20,28,.96);border:1px solid var(--border);border-left:3px solid var(--accent);padding:9px 13px;font-family:'Share Tech Mono',monospace;font-size:11px;pointer-events:none;opacity:0;transition:opacity .1s;z-index:100;min-width:175px;line-height:1.8;}
+
+  /* HLINE LABEL */
+  .hline-label-box{position:absolute;right:0;transform:translateY(-50%);background:var(--panel);border:1px solid;border-radius:3px;padding:2px 8px;font-family:'Share Tech Mono',monospace;font-size:11px;font-weight:600;cursor:ns-resize;user-select:none;display:flex;align-items:center;gap:5px;z-index:20;white-space:nowrap;}
+  .hline-label-box .del-btn{cursor:pointer;opacity:.5;font-size:11px;line-height:1;padding:0 2px;}
+  .hline-label-box .del-btn:hover{opacity:1;}
+
+  /* ZONE HLINE — slightly different look */
+  .hline-label-box.zone-line{font-size:10px;padding:1px 7px;border-width:2px;}
+  .hline-label-box.zone-line .zone-tag{font-size:8px;letter-spacing:.5px;opacity:.7;text-transform:uppercase;}
+
+  /* BOTTOM BAR */
+  #bottombar{display:flex;align-items:center;gap:18px;padding:5px 14px;background:var(--surface);border-top:1px solid var(--border);font-size:11px;color:var(--muted);font-family:'Share Tech Mono',monospace;flex-shrink:0;}
+  #last-price-big{font-size:19px;font-weight:700;font-family:'Share Tech Mono',monospace;margin-left:auto;color:var(--text);transition:color .3s;}
+  #change-badge{padding:2px 9px;border-radius:3px;font-size:11px;font-weight:600;}
+  .badge-up{background:rgba(0,230,118,.15);color:var(--green);}
+  .badge-down{background:rgba(255,61,90,.15);color:var(--red);}
+
+  .crosshair{stroke:rgba(0,199,255,.2);stroke-width:1;stroke-dasharray:4,4;}
+  .watermark{fill:rgba(255,255,255,.03);font-family:'Oxanium',sans-serif;font-size:60px;font-weight:700;}
+  #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;background:var(--bg);z-index:50;transition:opacity .5s;}
+  #loading.hidden{opacity:0;pointer-events:none;}
+  .spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loading p{color:var(--muted);font-size:13px;letter-spacing:1px;}
+  #chart-container.drawing{cursor:crosshair;}
+  #btn-zoom-in:hover,#btn-zoom-out:hover,#btn-zoom-reset:hover{border-color:var(--accent);color:var(--accent);}
+  .mouse-overlay-pan{cursor:grab;}
+
+  /* ═══ ALERT NOTIFICATIONS ═══════════════════════════════ */
+  #alert-stack{
+    position:fixed;top:80px;right:20px;
+    display:flex;flex-direction:column;gap:8px;
+    z-index:9999;pointer-events:none;
+  }
+  .alert-toast{
+    display:flex;align-items:center;gap:10px;
+    padding:12px 18px;
+    border-radius:6px;
+    border-left:4px solid;
+    font-family:'Share Tech Mono',monospace;
+    font-size:12px;
+    min-width:280px;
+    pointer-events:all;
+    animation:toastIn .3s ease;
+    backdrop-filter:blur(10px);
+    cursor:pointer;
+  }
+  @keyframes toastIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(40px)}}
+  .alert-toast.removing{animation:toastOut .3s ease forwards;}
+
+  .alert-toast.green-alert{background:rgba(0,18,8,.92);border-color:var(--green);}
+  .alert-toast.orange-alert{background:rgba(26,14,0,.92);border-color:var(--orange);}
+  .alert-toast.red-alert{background:rgba(26,4,8,.92);border-color:var(--red);}
+
+  .alert-icon{font-size:18px;flex-shrink:0;}
+  .alert-body{flex:1;}
+  .alert-title{font-weight:700;font-size:12px;letter-spacing:.5px;}
+  .alert-sub{font-size:10px;opacity:.7;margin-top:2px;}
+  .alert-close{opacity:.5;cursor:pointer;font-size:14px;flex-shrink:0;}
+  .alert-close:hover{opacity:1;}
+
+  /* SCREEN FLASH for red zone */
+  #screen-flash{
+    position:fixed;inset:0;
+    pointer-events:none;z-index:9998;
+    opacity:0;
+  }
+  #screen-flash.flash-red{animation:flashRed 1s ease;}
+  #screen-flash.flash-orange{animation:flashOrange .6s ease;}
+  @keyframes flashRed{0%{opacity:0}20%{opacity:.25;background:#ff3d5a}80%{opacity:.15;background:#ff3d5a}100%{opacity:0}}
+  @keyframes flashOrange{0%{opacity:0}30%{opacity:.2;background:#ff9500}100%{opacity:0}}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div id="logo">DERIV<span>CHART</span></div>
+  <div id="symbol-selector" style="display:flex;gap:5px;flex-wrap:wrap;">
+    <button class="sym-btn active" data-symbol="R_10"     data-name="Volatility 10">V10</button>
+    <button class="sym-btn"       data-symbol="R_25"     data-name="Volatility 25">V25</button>
+    <button class="sym-btn"       data-symbol="R_50"     data-name="Volatility 50">V50</button>
+    <button class="sym-btn"       data-symbol="R_75"     data-name="Volatility 75">V75</button>
+    <button class="sym-btn"       data-symbol="R_100"    data-name="Volatility 100">V100</button>
+    <button class="sym-btn"       data-symbol="1HZ10V"   data-name="Volatility 10 (1s)">V10(1s)</button>
+    <button class="sym-btn"       data-symbol="1HZ100V"  data-name="Volatility 100 (1s)">V100(1s)</button>
+    <button class="sym-btn"       data-symbol="BOOM300N"  data-name="Boom 300">BOOM300</button>
+    <button class="sym-btn"       data-symbol="CRASH300N" data-name="Crash 300">CRASH300</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:7px;">
+    <div id="status-dot"></div>
+    <span id="status-text">Connecting...</span>
+  </div>
+  <div id="ohlc-bar">
+    <div class="ohlc-item"><span class="ohlc-label">OPEN</span> <span class="ohlc-val neutral" id="ohlc-o">—</span></div>
+    <div class="ohlc-item"><span class="ohlc-label">HIGH</span> <span class="ohlc-val up"      id="ohlc-h">—</span></div>
+    <div class="ohlc-item"><span class="ohlc-label">LOW</span>  <span class="ohlc-val down"    id="ohlc-l">—</span></div>
+    <div class="ohlc-item"><span class="ohlc-label">CLOSE</span><span class="ohlc-val neutral" id="ohlc-c">—</span></div>
+  </div>
+</div>
+
+<!-- DRAWING TOOLBAR -->
+<div id="toolbar">
+  <span class="tool-label">TOOLS</span>
+
+  <button class="tool-btn active" id="btn-pointer" onclick="setTool('pointer')">
+    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2l10 5-5 1-2 5z"/></svg>
+    Pointer
+  </button>
+
+  <button class="tool-btn" id="btn-hline" onclick="setTool('hline')">
+    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="1" y1="7" x2="13" y2="7"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>
+    H-Line
+  </button>
+
+  <!-- ZONE BUTTON -->
+  <button class="tool-btn" id="btn-zone" onclick="toggleZonePanel()">
+    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+      <rect x="1" y="2" width="12" height="3" rx="1" stroke="#00e676"/>
+      <rect x="1" y="6" width="12" height="3" rx="1" stroke="#ff9500"/>
+      <rect x="1" y="10" width="12" height="3" rx="1" stroke="#ff3d5a"/>
+    </svg>
+    Zone
+  </button>
+
+  <div class="tool-sep"></div>
+  <span class="tool-label">COLOR</span>
+  <div id="color-swatches" style="display:flex;gap:4px;align-items:center;">
+    <div class="color-swatch selected" data-color="#ffc400" style="background:#ffc400;" title="Gold"></div>
+    <div class="color-swatch" data-color="#00c7ff" style="background:#00c7ff;" title="Blue"></div>
+    <div class="color-swatch" data-color="#00e676" style="background:#00e676;" title="Green"></div>
+    <div class="color-swatch" data-color="#ff3d5a" style="background:#ff3d5a;" title="Red"></div>
+    <div class="color-swatch" data-color="#c084fc" style="background:#c084fc;" title="Purple"></div>
+    <div class="color-swatch" data-color="#fb923c" style="background:#fb923c;" title="Orange"></div>
+    <div class="color-swatch" data-color="#e0eaf5" style="background:#e0eaf5;" title="White"></div>
+  </div>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" onclick="clearAllLines()" style="color:var(--red);">
+    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/></svg>
+    Clear All
+  </button>
+  <span id="hline-count" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--muted);margin-left:4px;"></span>
+
+  <div class="tool-sep"></div>
+  <span class="tool-label">ZOOM</span>
+
+  <button class="tool-btn" id="btn-zoom-in" onclick="zoomBy(0.7)" title="Zoom In  (or scroll up)">
+    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
+      <circle cx="6" cy="6" r="4.5"/><line x1="9.5" y1="9.5" x2="13" y2="13"/>
+      <line x1="6" y1="3.5" x2="6" y2="8.5"/><line x1="3.5" y1="6" x2="8.5" y2="6"/>
+    </svg>
+    +
+  </button>
+
+  <button class="tool-btn" id="btn-zoom-out" onclick="zoomBy(1.43)" title="Zoom Out  (or scroll down)">
+    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
+      <circle cx="6" cy="6" r="4.5"/><line x1="9.5" y1="9.5" x2="13" y2="13"/>
+      <line x1="3.5" y1="6" x2="8.5" y2="6"/>
+    </svg>
+    −
+  </button>
+
+  <button class="tool-btn" id="btn-zoom-reset" onclick="resetZoom()" title="Reset zoom">
+    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M2 7 A5 5 0 1 1 7 12"/><polyline points="2,4 2,7 5,7"/>
+    </svg>
+    Reset
+  </button>
+
+  <span id="zoom-label" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--muted);min-width:70px;">120 candles</span>
+
+  <div class="tool-sep"></div>
+  <span class="tool-label">PRICE</span>
+
+  <button class="tool-btn" onclick="yZoomFactor=Math.max(0.2,yZoomFactor*0.75);renderChart();" title="Zoom in on price axis">
+    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
+      <line x1="7" y1="1" x2="7" y2="13"/><line x1="4" y1="4" x2="7" y2="1"/><line x1="10" y1="4" x2="7" y2="1"/>
+      <line x1="4" y1="10" x2="7" y2="13"/><line x1="10" y1="10" x2="7" y2="13"/>
+    </svg>
+    Y+
+  </button>
+
+  <button class="tool-btn" onclick="yZoomFactor=Math.min(20,yZoomFactor*1.33);renderChart();" title="Zoom out on price axis — see levels far above/below">
+    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
+      <line x1="7" y1="1" x2="7" y2="13"/><line x1="4" y1="4" x2="7" y2="1"/><line x1="10" y1="4" x2="7" y2="1"/>
+      <line x1="4" y1="10" x2="7" y2="13"/><line x1="10" y1="10" x2="7" y2="13"/>
+      <line x1="2" y1="7" x2="12" y2="7" stroke-dasharray="2,2"/>
+    </svg>
+    Y−
+  </button>
+</div>
+
+<!-- ZONE PANEL -->
+<div id="zone-panel">
+
+  <!-- GREEN ZONE ROW -->
+  <div class="zone-row">
+    <div class="zone-dot" style="background:#00e676;"></div>
+    <span class="zone-name green">GREEN</span>
+    <span class="zone-desc">🔔 Notification when price crosses this line in its stacked direction</span>
+    <button class="zone-set-btn" id="zone-green-btn" onclick="startZoneDraw('green')">Set Line</button>
+    <div class="zone-price-display" id="zone-green-price" style="color:var(--green);">not set</div>
+    <button class="zone-clear-btn" onclick="clearZone('green')">✕</button>
+    <span class="zone-status-badge badge-off" id="zone-green-badge">OFF</span>
+    <button class="zone-toggle" id="zone-green-toggle" onclick="toggleZone('green')">ENABLE</button>
+  </div>
+
+  <!-- ORANGE ZONE ROW -->
+  <div class="zone-row">
+    <div class="zone-dot" style="background:#ff9500;"></div>
+    <span class="zone-name orange">ORANGE</span>
+    <span class="zone-desc">🔊 Sound + notification when price crosses this line in its stacked direction</span>
+    <button class="zone-set-btn" id="zone-orange-btn" onclick="startZoneDraw('orange')">Set Line</button>
+    <div class="zone-price-display" id="zone-orange-price" style="color:var(--orange);">not set</div>
+    <button class="zone-clear-btn" onclick="clearZone('orange')">✕</button>
+    <span class="zone-status-badge badge-off" id="zone-orange-badge">OFF</span>
+    <button class="zone-toggle" id="zone-orange-toggle" onclick="toggleZone('orange')">ENABLE</button>
+  </div>
+
+  <!-- RED ZONE ROW -->
+  <div class="zone-row">
+    <div class="zone-dot" style="background:#ff3d5a;"></div>
+    <span class="zone-name red">RED</span>
+    <span class="zone-desc">🚨 Buzzing alarm + screen flash when price crosses this line in its stacked direction</span>
+    <button class="zone-set-btn" id="zone-red-btn" onclick="startZoneDraw('red')">Set Line</button>
+    <div class="zone-price-display" id="zone-red-price" style="color:var(--red);">not set</div>
+    <button class="zone-clear-btn" onclick="clearZone('red')">✕</button>
+    <span class="zone-status-badge badge-off" id="zone-red-badge">OFF</span>
+    <button class="zone-toggle" id="zone-red-toggle" onclick="toggleZone('red')">ENABLE</button>
+  </div>
+
+</div>
+
+<!-- CHART -->
+<div id="chart-wrap">
+  <div id="chart-container">
+    <svg id="chart-svg"></svg>
+    <div id="hlines-overlay"></div>
+    <div id="loading"><div class="spinner"></div><p>LOADING CANDLES...</p></div>
+  </div>
+</div>
+
+<!-- BOTTOM BAR -->
+<div id="bottombar">
+  <span id="sym-label-bottom">—</span>
+  <span>• 1 MIN</span>
+  <span id="candle-count">0 candles</span>
+  <div id="last-price-big">—</div>
+  <div id="change-badge" class="badge-up">+0.00%</div>
+</div>
+
+<!-- ALERT STACK -->
+<div id="alert-stack"></div>
+<!-- SCREEN FLASH -->
+<div id="screen-flash"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════════════════════
+const APP_ID = "71255";
+const WS_URL = `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`;
+
+let ws = null, candles = [], currentSymbol = "R_10", currentName = "Volatility 10";
+
+// ═══════════════════════════════════════════════════════════════
+//  TOOL STATE
+// ═══════════════════════════════════════════════════════════════
+let activeTool  = "pointer";
+let activeColor = "#ffc400";
+let hlines      = [];
+let draggingHline = null;
+let hlineIdSeq  = 0;
+
+function setTool(t) {
+  activeTool = t;
+  document.getElementById("btn-pointer").classList.toggle("active", t==="pointer");
+  document.getElementById("btn-hline").classList.toggle("active",   t==="hline");
+  document.getElementById("chart-container").classList.toggle("drawing", t!=="pointer");
+}
+
+document.querySelectorAll(".color-swatch").forEach(sw => {
+  sw.addEventListener("click", () => {
+    document.querySelectorAll(".color-swatch").forEach(s=>s.classList.remove("selected"));
+    sw.classList.add("selected");
+    activeColor = sw.dataset.color;
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  ZONE STATE
+// ═══════════════════════════════════════════════════════════════
+const ZONE_COLORS = { green:"#00e676", orange:"#ff9500", red:"#ff3d5a" };
+const ZONE_NAMES  = { green:"GREEN ZONE", orange:"ORANGE ZONE", red:"RED ZONE" };
+
+const zones = {
+  green:  { price:null, armed:false, triggered:false, hlineId:null },
+  orange: { price:null, armed:false, triggered:false, hlineId:null },
+  red:    { price:null, armed:false, triggered:false, hlineId:null },
+};
+
+let drawingZone = null;   // which zone we're currently placing
+
+let zonePanelOpen = false;
+function toggleZonePanel() {
+  zonePanelOpen = !zonePanelOpen;
+  document.getElementById("zone-panel").classList.toggle("open", zonePanelOpen);
+  document.getElementById("btn-zone").classList.toggle("active", zonePanelOpen);
+}
+
+function startZoneDraw(zoneKey) {
+  drawingZone = zoneKey;
+  activeTool  = "zone";
+  document.getElementById("chart-container").classList.add("drawing");
+  // Blink the button
+  document.querySelectorAll(".zone-set-btn").forEach(b=>b.classList.remove("drawing"));
+  document.getElementById(`zone-${zoneKey}-btn`).classList.add("drawing");
+  document.getElementById(`zone-${zoneKey}-btn`).textContent = "Click on chart...";
+}
+
+function placeZoneLine(price, zoneKey) {
+  const z = zones[zoneKey];
+  // Remove previous zone line if exists
+  if (z.hlineId !== null) {
+    const old = hlines.find(h=>h.id===z.hlineId);
+    if (old) removeHline(old.id);
+  }
+
+  z.price     = price;
+  z.triggered = false; // reset so alert fires again
+
+  // Add a special hline for this zone
+  const h = addHline(price, ZONE_COLORS[zoneKey], true, zoneKey);
+  z.hlineId = h.id;
+
+  // Update panel display
+  document.getElementById(`zone-${zoneKey}-price`).textContent = price.toFixed(4);
+
+  // Reset draw state
+  drawingZone = null;
+  activeTool  = "pointer";
+  document.getElementById("chart-container").classList.remove("drawing");
+  document.getElementById(`zone-${zoneKey}-btn`).classList.remove("drawing");
+  document.getElementById(`zone-${zoneKey}-btn`).textContent = "Set Line";
+
+  updateZoneBadge(zoneKey);
+}
+
+function clearZone(zoneKey) {
+  const z = zones[zoneKey];
+  if (z.hlineId !== null) {
+    removeHline(z.hlineId);
+    z.hlineId = null;
+  }
+  z.price     = null;
+  z.armed     = false;
+  z.triggered = false;
+  document.getElementById(`zone-${zoneKey}-price`).textContent = "not set";
+  updateZoneBadge(zoneKey);
+}
+
+function toggleZone(zoneKey) {
+  const z = zones[zoneKey];
+  if (!z.price) { showToast("⚠️", "Set a price line first!", "#ffc400", "warning"); return; }
+  z.armed     = !z.armed;
+  z.triggered = false; // re-arm
+  updateZoneBadge(zoneKey);
+}
+
+function updateZoneBadge(zoneKey) {
+  const z       = zones[zoneKey];
+  const badge   = document.getElementById(`zone-${zoneKey}-badge`);
+  const toggle  = document.getElementById(`zone-${zoneKey}-toggle`);
+  if (z.armed && z.price !== null) {
+    badge.textContent = "ARMED";
+    badge.className   = "zone-status-badge badge-armed";
+    toggle.textContent = "DISABLE";
+    toggle.className  = "zone-toggle on";
+  } else {
+    badge.textContent = "OFF";
+    badge.className   = "zone-status-badge badge-off";
+    toggle.textContent = "ENABLE";
+    toggle.className  = "zone-toggle";
+  }
+}
+
+// ─── Check zones on every price tick — DIRECTIONAL CROSSING ──
+//
+//  Logic:
+//  1. Collect all 3 armed zone prices and sort them.
+//  2. Determine where the current price sits relative to the stack.
+//  3. For each zone line, the trigger direction is:
+//       • RISE scenario  → price was BELOW the line, now >= line  (crossing upward)
+//       • FALL scenario  → price was ABOVE the line, now <= line  (crossing downward)
+//  4. The "expected" crossing direction for each line is determined by
+//     where the OTHER lines sit:
+//       - If more armed lines are ABOVE a given line → price is likely rising toward it
+//         (trigger fires when price crosses UP through it)
+//       - If more armed lines are BELOW a given line → price is likely falling toward it
+//         (trigger fires when price crosses DOWN through it)
+//     In a 3-line stack this simplifies to:
+//       lowest line  → trigger on UP cross
+//       middle line  → trigger on UP cross (if price came from below) OR DOWN cross (if from above)
+//                      i.e. trigger whenever price crosses it from either side
+//       highest line → trigger on DOWN cross
+//     BUT — the colour of the line doesn't change the rule, only position does.
+//     So we work purely with sorted price positions.
+//
+//  prevPrice tracks the close of the previous render tick.
+
+let prevPrice = null;
+
+function checkZones(currentPrice) {
+  if (prevPrice === null) { prevPrice = currentPrice; return; }
+
+  const prev = prevPrice;
+  prevPrice  = currentPrice;
+
+  // Collect all armed zones that have a price set
+  const armed = Object.entries(zones)
+    .filter(([, z]) => z.armed && z.price !== null)
+    .map(([key, z]) => ({ key, price: z.price, z }));
+
+  if (!armed.length) return;
+
+  // Sort by price ascending so we know each line's position in the stack
+  armed.sort((a, b) => a.price - b.price);
+  const n = armed.length;
+
+  armed.forEach(({ key, price, z }, idx) => {
+    if (z.triggered) return;
+
+    // Determine expected crossing direction based on stack position
+    // lowest  (idx 0)      → expect UP cross   (price rising toward it from below)
+    // highest (idx n-1)    → expect DOWN cross  (price falling toward it from above)
+    // middle  (0 < idx < n-1) → trigger on EITHER cross (price passes through middle)
+
+    const crossedUp   = prev < price && currentPrice >= price;
+    const crossedDown = prev > price && currentPrice <= price;
+
+    let shouldFire = false;
+
+    if (n === 1) {
+      // Only one zone set — trigger on either direction
+      shouldFire = crossedUp || crossedDown;
+
+    } else if (idx === 0) {
+      // Lowest line in stack → trigger on UP cross (price rising through it)
+      shouldFire = crossedUp;
+
+    } else if (idx === n - 1) {
+      // Highest line in stack → trigger on DOWN cross (price falling through it)
+      shouldFire = crossedDown;
+
+    } else {
+      // Middle line → trigger on whichever direction price crosses
+      shouldFire = crossedUp || crossedDown;
+    }
+
+    if (shouldFire) {
+      z.triggered = true;
+      const dir = crossedUp ? "↑ RISE" : "↓ FALL";
+      fireZoneAlert(key, currentPrice, price, dir);
+      // Re-arm after 30 seconds
+      setTimeout(() => { z.triggered = false; }, 30000);
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ALERT SYSTEM
+// ═══════════════════════════════════════════════════════════════
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+// Mobile browsers suspend AudioContext until user interaction — resume on first touch/click
+function resumeAudio() {
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  document.removeEventListener("touchstart", resumeAudio);
+  document.removeEventListener("click", resumeAudio);
+}
+document.addEventListener("touchstart", resumeAudio, { once: true });
+document.addEventListener("click",      resumeAudio, { once: true });
+
+function playGreenAlert() {
+  // Soft ding — pleasant chime
+  const osc  = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type      = "sine";
+  osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(1320, audioCtx.currentTime+0.15);
+  gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.5);
+  osc.start(); osc.stop(audioCtx.currentTime+0.5);
+}
+
+function playOrangeAlert() {
+  // Double beep — attention sound
+  [0, 0.25].forEach(offset => {
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type = "square";
+    osc.frequency.setValueAtTime(660, audioCtx.currentTime+offset);
+    gain.gain.setValueAtTime(0.25, audioCtx.currentTime+offset);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+offset+0.18);
+    osc.start(audioCtx.currentTime+offset);
+    osc.stop(audioCtx.currentTime+offset+0.18);
+  });
+}
+
+function playRedAlert() {
+  // Buzzing alarm — repeating harsh tone
+  const pulses = 6;
+  for (let i = 0; i < pulses; i++) {
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(220 + (i%2)*110, audioCtx.currentTime + i*0.15);
+    gain.gain.setValueAtTime(0.35, audioCtx.currentTime + i*0.15);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + i*0.15 + 0.13);
+    osc.start(audioCtx.currentTime + i*0.15);
+    osc.stop(audioCtx.currentTime + i*0.15 + 0.13);
+  }
+}
+
+function fireZoneAlert(zoneKey, currentPrice, zonePrice, dir="") {
+  const flash    = document.getElementById("screen-flash");
+  const dirLabel = dir ? `  ${dir}` : "";
+
+  // ── Vibration patterns ──────────────────────────────────────
+  // Green: short tap
+  // Orange: 2 second pattern (on 200ms, off 100ms × repeating = ~2s)
+  // Red: 3 second harsh buzz pattern
+  const vibPatterns = {
+    green:  [150, 80, 150],
+    orange: [200,100, 200,100, 200,100, 200,100, 200,100, 200],   // ~2s
+    red:    [300,80, 300,80, 300,80, 300,80, 300,80, 300,80, 300] // ~3s
+  };
+
+  if (navigator.vibrate) {
+    navigator.vibrate(vibPatterns[zoneKey] || [200]);
+  }
+
+  // ── Titles & bodies for notification ──────────────────────
+  const notifData = {
+    green:  { title: "🟢 GREEN ZONE CROSSED" + dirLabel,  body: `Price ${currentPrice.toFixed(4)} crossed ${zonePrice.toFixed(4)}` },
+    orange: { title: "🟠 ORANGE ZONE ALARM" + dirLabel,   body: `Price ${currentPrice.toFixed(4)} crossed ${zonePrice.toFixed(4)}` },
+    red:    { title: "🔴 ⚠ RED ZONE ALARM ⚠" + dirLabel, body: `DANGER: ${currentPrice.toFixed(4)} crossed ${zonePrice.toFixed(4)}` },
+  };
+  const nd = notifData[zoneKey];
+
+  // ── Send to Service Worker for background notification ─────
+  // This fires even if app is minimised or screen is off
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type:  "ZONE_ALERT",
+      zone:  zoneKey,
+      title: nd.title,
+      body:  nd.body,
+    });
+  }
+
+  // ── In-app visual + sound ──────────────────────────────────
+  if (zoneKey === "green") {
+    playGreenAlert();
+    showToast("🟢", `GREEN ZONE CROSSED${dirLabel}`, "#00e676", "green-alert",
+      `Price ${currentPrice.toFixed(4)} crossed zone at ${zonePrice.toFixed(4)}`);
+  }
+
+  if (zoneKey === "orange") {
+    playOrangeAlert();
+    flash.className = "flash-orange";
+    setTimeout(() => flash.className="", 700);
+    showToast("🟠", `ORANGE ZONE CROSSED${dirLabel}`, "#ff9500", "orange-alert",
+      `Price ${currentPrice.toFixed(4)} crossed zone at ${zonePrice.toFixed(4)}`);
+  }
+
+  if (zoneKey === "red") {
+    playRedAlert();
+    let flashes = 0;
+    const flashInterval = setInterval(() => {
+      flash.className = "flash-red";
+      setTimeout(() => flash.className="", 400);
+      if (++flashes >= 3) clearInterval(flashInterval);
+    }, 500);
+    showToast("🔴", `⚠ RED ZONE ALARM${dirLabel} ⚠`, "#ff3d5a", "red-alert",
+      `Price ${currentPrice.toFixed(4)} crossed DANGER zone at ${zonePrice.toFixed(4)}`, true);
+  }
+}
+
+// ─── Toast notifications ──────────────────────────────────────
+function showToast(icon, title, color, cssClass, subtitle="", persist=false) {
+  const stack = document.getElementById("alert-stack");
+  const toast = document.createElement("div");
+  toast.className = `alert-toast ${cssClass}`;
+  toast.innerHTML = `
+    <div class="alert-icon">${icon}</div>
+    <div class="alert-body">
+      <div class="alert-title" style="color:${color}">${title}</div>
+      ${subtitle ? `<div class="alert-sub">${subtitle}</div>` : ""}
+    </div>
+    <div class="alert-close" onclick="dismissToast(this.parentElement)">✕</div>
+  `;
+  stack.appendChild(toast);
+  toast.addEventListener("click", e => {
+    if (!e.target.classList.contains("alert-close")) dismissToast(toast);
+  });
+  if (!persist) setTimeout(() => dismissToast(toast), 7000);
+}
+
+function dismissToast(toast) {
+  if (!toast || !toast.parentElement) return;
+  toast.classList.add("removing");
+  setTimeout(() => toast.remove(), 300);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  D3 CHART
+// ═══════════════════════════════════════════════════════════════
+const svg    = d3.select("#chart-svg");
+const margin = { top:18, right:72, bottom:34, left:10 };
+let width=0, height=0, xScale, yScale;
+let chartG, candleG, crosshairX, crosshairY;
+
+// ── Viewport (zoom/pan state) ─────────────────────────────────
+const VIEW_MIN = 10;
+const VIEW_MAX = 500;   // extended so you can zoom way out
+const VIEW_DEF = 120;
+let viewCount  = VIEW_DEF;  // candles visible at once
+let viewOffset = 0;         // candles scrolled back from the right (0 = latest on right)
+
+let isPanning   = false;
+let panStartX   = 0;
+let panStartOff = 0;
+let panStartY   = 0;
+let panStartYOff = 0;
+
+// Y-axis pan and zoom state
+let yPanOffset  = 0;    // price units shifted up/down from auto-fit
+let yZoomFactor = 1.0;  // >1 = zoomed out on price axis, <1 = zoomed in
+
+function getViewWindow() {
+  const total = candles.length;
+  if (!total) return [];
+  const end   = Math.max(0, total - viewOffset);
+  const start = Math.max(0, end - viewCount);
+  return candles.slice(start, end);
+}
+
+function clampViewOffset() {
+  const max = Math.max(0, candles.length - VIEW_MIN);
+  viewOffset = Math.max(0, Math.min(viewOffset, max));
+}
+
+function clampViewCount() {
+  viewCount = Math.max(VIEW_MIN, Math.min(VIEW_MAX, viewCount));
+}
+
+function zoomBy(delta, anchorFraction=0.8) {
+  const oldCount = viewCount;
+  viewCount = Math.round(viewCount * delta);
+  clampViewCount();
+  const diff = viewCount - oldCount;
+  viewOffset = Math.round(viewOffset - diff * (1 - anchorFraction));
+  clampViewOffset();
+  renderChart();
+  updateZoomLabel();
+}
+
+function updateZoomLabel() {
+  const el = document.getElementById("zoom-label");
+  if (el) el.textContent = viewCount + " candles";
+}
+
+function initChart() {
+  svg.selectAll("*").remove();
+  const rect = document.getElementById("chart-container").getBoundingClientRect();
+  width=rect.width; height=rect.height;
+  svg.attr("width",width).attr("height",height);
+
+  svg.append("text").attr("class","watermark")
+    .attr("x",width/2).attr("y",height/2+25)
+    .attr("text-anchor","middle").attr("dominant-baseline","middle")
+    .text(currentName.toUpperCase());
+
+  chartG  = svg.append("g");
+  candleG = chartG.append("g");
+  chartG.append("g").attr("class","y-grid-g");
+
+  svg.append("g").attr("class","x-axis-g").attr("transform",`translate(0,${height-margin.bottom})`);
+  svg.append("g").attr("class","y-axis-g").attr("transform",`translate(${width-margin.right},0)`);
+
+  crosshairX = svg.append("line").attr("class","crosshair").style("display","none");
+  crosshairY = svg.append("line").attr("class","crosshair").style("display","none");
+
+  svg.append("rect").attr("id","price-label-bg").attr("width",margin.right-2).attr("height",20).attr("rx",2).style("display","none");
+  svg.append("text").attr("id","price-label-text").attr("font-family","Share Tech Mono,monospace").attr("font-size","11px").attr("fill","#000").attr("dominant-baseline","middle").style("display","none");
+
+  svg.append("rect")
+    .attr("class","mouse-overlay")
+    .attr("x",margin.left).attr("y",margin.top)
+    .attr("width",width-margin.left-margin.right)
+    .attr("height",height-margin.top-margin.bottom)
+    .attr("fill","transparent").style("cursor","inherit")
+    .on("mousemove",onMouseMove)
+    .on("mouseleave",onMouseLeave)
+    .on("click",onChartClick)
+    // ── Scroll wheel / trackpad ──
+    .on("wheel", function(event) {
+      event.preventDefault();
+      const mouseX = d3.pointer(event)[0];
+      const chartW = width - margin.left - margin.right;
+
+      // If cursor is in the right 80px (Y axis area) → zoom price axis
+      if (mouseX > width - margin.right - 10) {
+        const zoomIn = event.deltaY < 0;
+        yZoomFactor = Math.max(0.2, Math.min(20, yZoomFactor * (zoomIn ? 0.85 : 1.18)));
+        renderChart();
+        return;
+      }
+
+      // ctrlKey=true → pinch-to-zoom gesture → ZOOM X
+      if (event.ctrlKey) {
+        const zoomIn = event.deltaY < 0;
+        const frac   = Math.max(0, Math.min(1, (mouseX - margin.left) / chartW));
+        zoomBy(zoomIn ? 0.75 : 1.33, frac);
+        return;
+      }
+
+      const absX = Math.abs(event.deltaX);
+      const absY = Math.abs(event.deltaY);
+
+      if (absX > absY) {
+        // 2-finger horizontal swipe → PAN X
+        const pxPerCandle = Math.max(1, chartW / viewCount);
+        const delta       = Math.round(event.deltaX / pxPerCandle);
+        viewOffset        = viewOffset + delta;
+        clampViewOffset();
+        renderChart();
+        updateZoomLabel();
+      } else {
+        // 2-finger vertical swipe → ZOOM X
+        const zoomIn = event.deltaY < 0;
+        const frac   = Math.max(0, Math.min(1, (mouseX - margin.left) / chartW));
+        zoomBy(zoomIn ? 0.8 : 1.25, frac);
+      }
+    })
+    // ── Click+drag pan ──
+    .on("mousedown", function(event) {
+      if (activeTool !== "pointer") return;
+      isPanning    = true;
+      panStartX    = event.clientX;
+      panStartY    = event.clientY;
+      panStartOff  = viewOffset;
+      panStartYOff = yPanOffset;
+      d3.select(this).style("cursor","grabbing");
+      event.preventDefault();
+    });
+
+  refreshHlines();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER CANDLES
+// ═══════════════════════════════════════════════════════════════
+function renderChart() {
+  if (!candles.length || !width) return;
+  const show   = getViewWindow();
+  if (!show.length) return;
+  const allHigh = d3.max(show,d=>d.high);
+  const allLow  = d3.min(show,d=>d.low);
+  const pad     = (allHigh-allLow)*0.06||allHigh*0.002;
+
+  // Apply Y zoom (expand/contract price range) and Y pan (shift up/down)
+  const baseRange  = (allHigh + pad) - (allLow - pad);
+  const expandedRange = baseRange * yZoomFactor;
+  const midPrice   = (allHigh + allLow) / 2 + yPanOffset;
+  const yDomainLo  = midPrice - expandedRange / 2;
+  const yDomainHi  = midPrice + expandedRange / 2;
+
+  xScale = d3.scaleBand().domain(show.map(d=>d.epoch)).range([margin.left,width-margin.right]).padding(0.15);
+  yScale = d3.scaleLinear().domain([yDomainLo, yDomainHi]).range([height-margin.bottom,margin.top]);
+
+  const bw = xScale.bandwidth();
+
+  // Y grid
+  chartG.select(".y-grid-g").selectAll(".ygl").data(yScale.ticks(8)).join("line").attr("class","ygl")
+    .attr("x1",margin.left).attr("x2",width-margin.right)
+    .attr("y1",d=>yScale(d)).attr("y2",d=>yScale(d))
+    .attr("stroke","rgba(255,255,255,.04)").attr("stroke-width",1);
+
+  // Axes
+  svg.select(".x-axis-g").call(
+    d3.axisBottom(xScale)
+      .tickValues(show.filter((_,i,a)=>i%Math.max(1,Math.floor(a.length/8))===0).map(d=>d.epoch))
+      .tickFormat(d=>{const dt=new Date(d*1000);return`${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;})
+  ).call(g=>{
+    g.select(".domain").attr("stroke","var(--border)");
+    g.selectAll("text").attr("fill","var(--muted)").attr("font-family","Share Tech Mono,monospace").attr("font-size","10px");
+    g.selectAll("line").attr("stroke","var(--border)");
+  });
+
+  svg.select(".y-axis-g").call(d3.axisRight(yScale).ticks(8).tickFormat(d=>d.toFixed(4))).call(g=>{
+    g.select(".domain").attr("stroke","var(--border)");
+    g.selectAll("text").attr("fill","var(--muted)").attr("font-family","Share Tech Mono,monospace").attr("font-size","10px");
+    g.selectAll("line").attr("stroke","var(--border)");
+  });
+
+  // Wicks
+  candleG.selectAll(".wick").data(show,d=>d.epoch).join(
+    e=>e.append("line").attr("class","wick").attr("stroke-width",1),u=>u,x=>x.remove()
+  )
+  .attr("x1",d=>xScale(d.epoch)+bw/2).attr("x2",d=>xScale(d.epoch)+bw/2)
+  .attr("y1",d=>yScale(d.high)).attr("y2",d=>yScale(d.low))
+  .attr("stroke",d=>d.close>=d.open?"var(--green)":"var(--red)");
+
+  // Bodies
+  candleG.selectAll(".body").data(show,d=>d.epoch).join(
+    e=>e.append("rect").attr("class","body").attr("rx",1),u=>u,x=>x.remove()
+  )
+  .attr("x",d=>xScale(d.epoch)).attr("width",bw)
+  .attr("y",d=>yScale(Math.max(d.open,d.close)))
+  .attr("height",d=>Math.max(1,Math.abs(yScale(d.open)-yScale(d.close))))
+  .attr("fill",d=>d.close>=d.open?"var(--green)":"var(--red)").attr("opacity",.86);
+
+  // Current price line
+  const last=show[show.length-1];
+  chartG.selectAll(".price-line").data([last]).join("line").attr("class","price-line")
+    .attr("x1",margin.left).attr("x2",width-margin.right)
+    .attr("y1",yScale(last.close)).attr("y2",yScale(last.close))
+    .attr("stroke",last.close>=last.open?"var(--green)":"var(--red)")
+    .attr("stroke-width",1).attr("stroke-dasharray","4,4").attr("opacity",.6);
+
+  // Price label
+  const py=yScale(last.close), isUp=last.close>=last.open;
+  d3.select("#price-label-bg").style("display",null).attr("x",width-margin.right+2).attr("y",py-10).attr("fill",isUp?"var(--green)":"var(--red)");
+  d3.select("#price-label-text").style("display",null).attr("x",width-margin.right+2+(margin.right-2)/2).attr("y",py).attr("text-anchor","middle").attr("fill","#000").text(last.close.toFixed(4));
+
+  setOHLC(last);
+  document.getElementById("last-price-big").textContent=last.close.toFixed(4);
+  if(candles.length>1){
+    const pct=((last.close-candles[0].open)/candles[0].open*100).toFixed(2);
+    const badge=document.getElementById("change-badge");
+    badge.textContent=(pct>=0?"+":"")+pct+"%";
+    badge.className="change-badge "+(pct>=0?"badge-up":"badge-down");
+  }
+  document.getElementById("candle-count").textContent=`${candles.length} candles`;
+  refreshHlines();
+
+  // Check zones against latest price
+  checkZones(last.close);
+}
+
+function setOHLC(c){
+  if(!c)return;
+  document.getElementById("ohlc-o").textContent=c.open.toFixed(4);
+  document.getElementById("ohlc-h").textContent=c.high.toFixed(4);
+  document.getElementById("ohlc-l").textContent=c.low.toFixed(4);
+  document.getElementById("ohlc-c").textContent=c.close.toFixed(4);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  HLINE SYSTEM
+// ═══════════════════════════════════════════════════════════════
+function addHline(priceValue, color, isZone=false, zoneKey=null) {
+  if(!yScale) return;
+  const id      = ++hlineIdSeq;
+  const overlay = document.getElementById("hlines-overlay");
+
+  const lineEl = svg.append("line").attr("class","h-line-svg")
+    .attr("x1",margin.left).attr("x2",width-margin.right)
+    .attr("stroke",color).attr("stroke-width", isZone?2:1.5)
+    .attr("stroke-dasharray", isZone?"8,3":"6,3").attr("opacity", isZone?0.9:0.85);
+
+  const labelEl = document.createElement("div");
+  labelEl.className = `hline-label-box${isZone?" zone-line":""}`;
+  labelEl.style.borderColor=color; labelEl.style.color=color;
+  labelEl.innerHTML=`
+    ${isZone?`<span class="zone-tag">${zoneKey}</span>`:""}
+    <span class="price-text">${priceValue.toFixed(4)}</span>
+    <span class="del-btn" title="Remove">✕</span>
+  `;
+  overlay.appendChild(labelEl);
+
+  const hline={id, price:priceValue, color, lineEl, labelEl, isZone, zoneKey};
+  hlines.push(hline);
+  positionHline(hline);
+
+  labelEl.querySelector(".del-btn").addEventListener("click",e=>{
+    e.stopPropagation();
+    if(isZone && zoneKey) clearZone(zoneKey);
+    else removeHline(id);
+  });
+
+  // Drag
+  const startDrag = (clientY) => {
+    draggingHline = id;
+    document.body.style.cursor="ns-resize";
+  };
+  labelEl.addEventListener("mousedown",e=>{ if(!e.target.classList.contains("del-btn")){ e.preventDefault(); startDrag(e.clientY); }});
+  lineEl.style("cursor","ns-resize").on("mousedown",e=>{ e.preventDefault(); startDrag(e.clientY); });
+
+  updateHlineCount();
+  return hline;
+}
+
+function positionHline(h) {
+  if(!yScale) return;
+  const y=yScale(h.price);
+  const cTop=margin.top, cBottom=height-margin.bottom;
+  if(y<cTop||y>cBottom){ h.lineEl.style("display","none"); h.labelEl.style.display="none"; return; }
+  h.lineEl.style("display",null).attr("y1",y).attr("y2",y);
+  h.labelEl.style.display="";
+  h.labelEl.style.top=y+"px";
+  h.labelEl.querySelector(".price-text").textContent=h.price.toFixed(4);
+}
+
+function refreshHlines(){ hlines.forEach(positionHline); }
+
+function removeHline(id){
+  const idx=hlines.findIndex(h=>h.id===id);
+  if(idx===-1)return;
+  hlines[idx].lineEl.remove();
+  hlines[idx].labelEl.remove();
+  hlines.splice(idx,1);
+  updateHlineCount();
+}
+
+function clearAllLines(){
+  // Clear zones too
+  Object.keys(zones).forEach(clearZone);
+  [...hlines].forEach(h=>removeHline(h.id));
+}
+
+function updateHlineCount(){
+  const el=document.getElementById("hline-count");
+  el.textContent=hlines.length>0?`${hlines.length} line${hlines.length>1?"s":""}`:"";}
+
+// Drag events
+document.addEventListener("mousemove",e=>{
+  window._lastMouseX = e.clientX;
+  window._lastMouseY = e.clientY;
+  // ── hline drag ──
+  if(draggingHline!==null&&yScale){
+    const h=hlines.find(h=>h.id===draggingHline);
+    if(h){
+      const cr=document.getElementById("chart-container").getBoundingClientRect();
+      const newPrice=yScale.invert(e.clientY-cr.top);
+      h.price=newPrice;
+      if(h.isZone&&h.zoneKey){
+        zones[h.zoneKey].price=newPrice;
+        zones[h.zoneKey].triggered=false;
+        document.getElementById(`zone-${h.zoneKey}-price`).textContent=newPrice.toFixed(4);
+      }
+      positionHline(h);
+    }
+  }
+  // ── pan drag ──
+  if(isPanning&&candles.length){
+    const dx = e.clientX - panStartX;
+    const dy = e.clientY - panStartY;
+
+    // X pan — left/right through candles
+    const chartW      = width - margin.left - margin.right;
+    const pxPerCandle = Math.max(1, chartW / viewCount);
+    const candlesDragged = Math.round(dx / pxPerCandle);
+    viewOffset = panStartOff + candlesDragged;
+    clampViewOffset();
+
+    // Y pan — up/down through price levels
+    if(yScale){
+      const chartH     = height - margin.top - margin.bottom;
+      const priceRange = yScale.domain()[1] - yScale.domain()[0];
+      const pricePerPx = priceRange / chartH;
+      // dragging DOWN (dy>0) → price view moves down → yPanOffset decreases
+      yPanOffset = panStartYOff + dy * pricePerPx;
+    }
+
+    renderChart();
+    updateZoomLabel();
+  }
+});
+
+document.addEventListener("mouseup",()=>{
+  if(draggingHline!==null){ draggingHline=null; document.body.style.cursor=""; }
+  if(isPanning){
+    isPanning=false;
+    // If mouse moved significantly, mark as pan (suppress click)
+    const totalDrag = Math.max(
+      Math.abs(panStartX - (window._lastMouseX||panStartX)),
+      Math.abs(panStartY - (window._lastMouseY||panStartY))
+    );
+    if(totalDrag > 4) wasPanning = true;
+    svg.select(".mouse-overlay").style("cursor","inherit");
+  }
+});
+
+// Chart click — only fires if not panning
+let wasPanning = false;
+function onChartClick(event){
+  if(wasPanning){ wasPanning=false; return; }
+  if(activeTool==="hline"){
+    if(!yScale)return;
+    const[,my]=d3.pointer(event);
+    addHline(yScale.invert(my),activeColor);
+  } else if(activeTool==="zone" && drawingZone){
+    const[,my]=d3.pointer(event);
+    placeZoneLine(yScale.invert(my), drawingZone);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MOUSE / CROSSHAIR / TOOLTIP
+// ═══════════════════════════════════════════════════════════════
+const tooltip=document.getElementById("tooltip");
+
+function onMouseMove(event){
+  if(!candles.length||!xScale)return;
+  const[mx,my]=d3.pointer(event);
+  const show=getViewWindow();
+
+  crosshairX.style("display",null).attr("x1",mx).attr("x2",mx).attr("y1",margin.top).attr("y2",height-margin.bottom);
+  crosshairY.style("display",null).attr("x1",margin.left).attr("x2",width-margin.right).attr("y1",my).attr("y2",my);
+
+  const isDrawing=activeTool==="hline"||activeTool==="zone";
+  if(isDrawing){
+    const col=activeTool==="zone"?ZONE_COLORS[drawingZone]||"#ffffff":activeColor;
+    const ghostPrice=yScale.invert(my);
+    svg.selectAll(".ghost-line").data([1]).join("line").attr("class","ghost-line")
+      .attr("x1",margin.left).attr("x2",width-margin.right).attr("y1",my).attr("y2",my)
+      .attr("stroke",col).attr("stroke-width",1).attr("stroke-dasharray","4,4").attr("opacity",.45).attr("pointer-events","none");
+    svg.selectAll(".ghost-price").data([1]).join("text").attr("class","ghost-price")
+      .attr("x",width-margin.right+4).attr("y",my).attr("dominant-baseline","middle")
+      .attr("font-family","Share Tech Mono,monospace").attr("font-size","10px")
+      .attr("fill",col).attr("pointer-events","none").text(ghostPrice.toFixed(4));
+    tooltip.style.opacity="0";
+    return;
+  } else {
+    svg.selectAll(".ghost-line").remove();
+    svg.selectAll(".ghost-price").remove();
+  }
+
+  let best=null, bestDist=Infinity;
+  for(const c of show){
+    const cx=xScale(c.epoch)+xScale.bandwidth()/2;
+    const d=Math.abs(cx-mx);
+    if(d<bestDist){bestDist=d;best=c;}
+  }
+  if(!best)return;
+
+  const dt=new Date(best.epoch*1000);
+  const timeStr=dt.toISOString().replace("T"," ").slice(0,19)+" UTC";
+  const profit=best.close-best.open;
+  const pct=(profit/best.open*100).toFixed(3);
+  const col=profit>=0?"#00e676":"#ff3d5a";
+  tooltip.innerHTML=`
+    <div style="color:var(--muted);margin-bottom:4px;font-size:10px;">${timeStr}</div>
+    <div>O <span style="color:#e0eaf5">${best.open.toFixed(4)}</span></div>
+    <div>H <span style="color:#00e676">${best.high.toFixed(4)}</span></div>
+    <div>L <span style="color:#ff3d5a">${best.low.toFixed(4)}</span></div>
+    <div>C <span style="color:#e0eaf5">${best.close.toFixed(4)}</span></div>
+    <div style="margin-top:4px;color:${col}">${profit>=0?"+":""}${profit.toFixed(4)} (${pct}%)</div>
+  `;
+  tooltip.style.opacity="1";
+  const cr=document.getElementById("chart-container").getBoundingClientRect();
+  const tx=event.clientX-cr.left+16, ty=event.clientY-cr.top-20;
+  tooltip.style.left=(tx+180>cr.width?tx-200:tx)+"px";
+  tooltip.style.top=Math.max(0,ty)+"px";
+  setOHLC(best);
+}
+
+function onMouseLeave(){
+  crosshairX.style("display","none"); crosshairY.style("display","none");
+  tooltip.style.opacity="0";
+  svg.selectAll(".ghost-line").remove(); svg.selectAll(".ghost-price").remove();
+  if(candles.length) setOHLC(candles[candles.length-1]);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  WEBSOCKET
+// ═══════════════════════════════════════════════════════════════
+function connect(){
+  if(ws){ws.onclose=null;ws.close();}
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>{setStatus("live","LIVE");requestHistory();};
+  ws.onmessage=e=>handleMessage(JSON.parse(e.data));
+  ws.onerror=()=>setStatus("error","ERROR");
+  ws.onclose=()=>{setStatus("off","RECONNECTING...");setTimeout(connect,3000);};
+}
+
+function requestHistory(){
+  candles=[];
+  document.getElementById("loading").classList.remove("hidden");
+  ws.send(JSON.stringify({ticks_history:currentSymbol,adjust_start_time:1,count:200,end:"latest",granularity:60,style:"candles",subscribe:1}));
+}
+
+function handleMessage(msg){
+  if(msg.error){console.warn(msg.error.message);return;}
+  if(msg.msg_type==="candles"){
+    candles=(msg.candles||[]).map(c=>({epoch:c.epoch,open:parseFloat(c.open),high:parseFloat(c.high),low:parseFloat(c.low),close:parseFloat(c.close)}));
+    prevPrice = null;
+    document.getElementById("loading").classList.add("hidden");
+    renderChart();
+  }
+  if(msg.msg_type==="ohlc"){
+    const o=msg.ohlc;
+    if(!o||o.symbol!==currentSymbol)return;
+    const candle={epoch:o.open_time,open:parseFloat(o.open),high:parseFloat(o.high),low:parseFloat(o.low),close:parseFloat(o.close)};
+    const last=candles[candles.length-1];
+    if(last&&last.epoch===candle.epoch) candles[candles.length-1]=candle;
+    else if(!last||candle.epoch>last.epoch){candles.push(candle);if(candles.length>500)candles.shift();}
+    renderChart();
+    const el=document.getElementById("last-price-big");
+    el.style.color=candle.close>=candle.open?"var(--green)":"var(--red)";
+    setTimeout(()=>{el.style.color="var(--text)";},400);
+  }
+}
+
+function setStatus(state,text){
+  document.getElementById("status-dot").className=state==="live"?"live":"";
+  document.getElementById("status-text").textContent=text;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SYMBOL SWITCHING
+// ═══════════════════════════════════════════════════════════════
+document.querySelectorAll(".sym-btn").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    document.querySelectorAll(".sym-btn").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    currentSymbol=btn.dataset.symbol; currentName=btn.dataset.name;
+    document.getElementById("sym-label-bottom").textContent=currentName;
+    ["ohlc-o","ohlc-h","ohlc-l","ohlc-c"].forEach(id=>document.getElementById(id).textContent="—");
+    document.getElementById("last-price-big").textContent="—";
+    prevPrice = null;
+    viewCount = VIEW_DEF; viewOffset = 0;
+    yPanOffset = 0; yZoomFactor = 1.0;
+    initChart(); requestHistory();
+  });
+});
+
+window.addEventListener("resize",()=>{initChart();renderChart();});
+
+// ── Keyboard shortcuts ────────────────────────────────────────
+// +/= zoom in   -/_ zoom out   0 reset   ← pan left   → pan right
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "+" || e.key === "=") { zoomBy(0.7);   return; }
+  if (e.key === "-" || e.key === "_") { zoomBy(1.43);  return; }
+  if (e.key === "0")                  { resetZoom();   return; }
+  if (e.key === "ArrowLeft")  { viewOffset = Math.min(viewOffset + Math.max(1,Math.round(viewCount*0.1)), candles.length - VIEW_MIN); clampViewOffset(); renderChart(); updateZoomLabel(); }
+  if (e.key === "ArrowRight") { viewOffset = Math.max(0, viewOffset - Math.max(1,Math.round(viewCount*0.1)));                         clampViewOffset(); renderChart(); updateZoomLabel(); }
+});
+
+function resetZoom() {
+  viewCount  = VIEW_DEF;
+  viewOffset = 0;
+  yPanOffset  = 0;
+  yZoomFactor = 1.0;
+  renderChart();
+  updateZoomLabel();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════
+document.getElementById("sym-label-bottom").textContent=currentName;
+initChart();
+connect();
+
+// ═══════════════════════════════════════════════════════════════
+//  PWA — SERVICE WORKER REGISTRATION
+// ═══════════════════════════════════════════════════════════════
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js")
+      .then(reg => {
+        console.log("SW registered:", reg.scope);
+        // Ask for notification permission on first load
+        if ("Notification" in window && Notification.permission === "default") {
+          setTimeout(() => {
+            Notification.requestPermission().then(perm => {
+              if (perm === "granted") {
+                showToast("🔔", "Notifications enabled", "#00c7ff", "green-alert",
+                  "You'll get alerts even when the app is in background");
+              }
+            });
+          }, 2000);
+        }
+      })
+      .catch(err => console.warn("SW registration failed:", err));
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TOUCH GESTURES (mobile pan + pinch zoom)
+// ═══════════════════════════════════════════════════════════════
+(function setupTouch() {
+  const el = document.getElementById("chart-container");
+
+  let touch1 = null, touch2 = null;
+  let lastTouchX = 0, lastTouchY = 0;
+  let lastPinchDist = 0;
+  let touchPanOff = 0, touchPanYOff = 0;
+  let touchMoved = false;
+
+  function getTouchDist(a, b) {
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  }
+
+  el.addEventListener("touchstart", e => {
+    if (activeTool !== "pointer") return;
+    e.preventDefault();
+    touch1 = e.touches[0];
+    touch2 = e.touches[1] || null;
+    lastTouchX  = touch1.clientX;
+    lastTouchY  = touch1.clientY;
+    touchPanOff = viewOffset;
+    touchPanYOff = yPanOffset;
+    touchMoved  = false;
+    if (touch2) lastPinchDist = getTouchDist(touch1, touch2);
+  }, { passive: false });
+
+  el.addEventListener("touchmove", e => {
+    if (activeTool !== "pointer") return;
+    e.preventDefault();
+    const t0 = e.touches[0];
+    const t1 = e.touches[1] || null;
+
+    if (t1 && touch2) {
+      // ── Pinch zoom (2 fingers) ──────────────────────────────
+      const dist  = getTouchDist(t0, t1);
+      const ratio = lastPinchDist / dist;   // >1 = zooming out, <1 = zooming in
+      if (Math.abs(ratio - 1) > 0.01) {
+        const midX   = (t0.clientX + t1.clientX) / 2;
+        const rect   = el.getBoundingClientRect();
+        const chartW = width - margin.left - margin.right;
+        const frac   = Math.max(0, Math.min(1, (midX - rect.left - margin.left) / chartW));
+        zoomBy(ratio, frac);
+        lastPinchDist = dist;
+      }
+    } else {
+      // ── Single finger pan (X + Y) ───────────────────────────
+      const dx = t0.clientX - lastTouchX;
+      const dy = t0.clientY - lastTouchY;
+
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) touchMoved = true;
+
+      // X pan
+      const chartW      = width - margin.left - margin.right;
+      const pxPerCandle = Math.max(1, chartW / viewCount);
+      viewOffset = touchPanOff + Math.round(-dx / pxPerCandle);
+      clampViewOffset();
+
+      // Y pan
+      if (yScale) {
+        const chartH     = height - margin.top - margin.bottom;
+        const priceRange = yScale.domain()[1] - yScale.domain()[0];
+        const pricePerPx = priceRange / chartH;
+        yPanOffset = touchPanYOff + dy * pricePerPx;
+      }
+
+      renderChart();
+      updateZoomLabel();
+    }
+  }, { passive: false });
+
+  el.addEventListener("touchend", e => {
+    e.preventDefault();
+    const wasTap = !touchMoved && e.changedTouches.length === 1;
+    touch2 = null;
+
+    if (wasTap && (activeTool === "hline" || activeTool === "zone")) {
+      // Convert tap to chart click for placing lines
+      const t = e.changedTouches[0];
+      const rect = el.getBoundingClientRect();
+      const mx   = t.clientX - rect.left;
+      const my   = t.clientY - rect.top;
+      if (yScale && xScale) {
+        const price = yScale.invert(my);
+        if (activeTool === "hline") addHline(price, activeColor);
+        else if (activeTool === "zone" && drawingZone) placeZoneLine(price, drawingZone);
+      }
+    }
+    touchMoved = false;
+  }, { passive: false });
+})();
+
+// ── Install banner prompt ─────────────────────────────────────
+let deferredInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  // Show install button in bottom bar
+  const bb = document.getElementById("bottombar");
+  const btn = document.createElement("button");
+  btn.id = "install-btn";
+  btn.textContent = "📲 Install App";
+  btn.style.cssText = `
+    background:rgba(0,199,255,.12);border:1px solid #00c7ff;color:#00c7ff;
+    padding:3px 10px;border-radius:4px;font-family:'Oxanium',sans-serif;
+    font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;
+  `;
+  btn.onclick = () => {
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.then(r => {
+      if (r.outcome === "accepted") btn.remove();
+      deferredInstallPrompt = null;
+    });
+  };
+  bb.appendChild(btn);
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  TOUCH EVENTS  (mobile pinch-zoom + swipe pan)
+// ═══════════════════════════════════════════════════════════════
+(function() {
+  const container = document.getElementById("chart-container");
+  let touches = {};
+  let lastPinchDist  = null;
+  let lastTouchX     = null;
+  let lastTouchY     = null;
+  let touchStartX    = null;
+  let touchStartY    = null;
+  let touchStartOff  = 0;
+  let touchStartYOff = 0;
+  let touchMoved     = false;
+
+  function getTouches(e) { return Array.from(e.touches); }
+
+  function pinchDist(t) {
+    const dx = t[0].clientX - t[1].clientX;
+    const dy = t[0].clientY - t[1].clientY;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+
+  container.addEventListener("touchstart", e => {
+    e.preventDefault();
+    const ts = getTouches(e);
+    touches = {};
+    ts.forEach(t => touches[t.identifier] = t);
+
+    if (ts.length === 1) {
+      touchStartX   = ts[0].clientX;
+      touchStartY   = ts[0].clientY;
+      touchStartOff = viewOffset;
+      touchStartYOff = yPanOffset;
+      touchMoved    = false;
+      lastTouchX = ts[0].clientX;
+      lastTouchY = ts[0].clientY;
+    }
+    if (ts.length === 2) {
+      lastPinchDist = pinchDist(ts);
+      lastTouchX = (ts[0].clientX + ts[1].clientX) / 2;
+      lastTouchY = (ts[0].clientY + ts[1].clientY) / 2;
+    }
+  }, { passive: false });
+
+  container.addEventListener("touchmove", e => {
+    e.preventDefault();
+    const ts = getTouches(e);
+
+    if (ts.length === 2) {
+      // ── Pinch zoom (X axis) ──
+      const dist = pinchDist(ts);
+      if (lastPinchDist) {
+        const ratio = lastPinchDist / dist;
+        const midX  = (ts[0].clientX + ts[1].clientX) / 2;
+        const rect  = container.getBoundingClientRect();
+        const chartW = width - margin.left - margin.right;
+        const frac   = Math.max(0, Math.min(1, (midX - rect.left - margin.left) / chartW));
+        zoomBy(ratio > 1 ? Math.min(ratio, 1.3) : Math.max(ratio, 0.77), frac);
+      }
+      lastPinchDist = dist;
+
+      // ── 2-finger swipe pan (X + Y) ──
+      const cx = (ts[0].clientX + ts[1].clientX) / 2;
+      const cy = (ts[0].clientY + ts[1].clientY) / 2;
+      if (lastTouchX !== null) {
+        const dx = cx - lastTouchX;
+        const dy = cy - lastTouchY;
+        // X pan
+        const chartW     = width - margin.left - margin.right;
+        const pxPerCandle = Math.max(1, chartW / viewCount);
+        viewOffset = Math.round(viewOffset - dx / pxPerCandle);
+        clampViewOffset();
+        // Y pan
+        if (yScale) {
+          const chartH     = height - margin.top - margin.bottom;
+          const priceRange = yScale.domain()[1] - yScale.domain()[0];
+          yPanOffset += dy * (priceRange / chartH);
+        }
+        renderChart();
+        updateZoomLabel();
+      }
+      lastTouchX = cx;
+      lastTouchY = cy;
+
+    } else if (ts.length === 1) {
+      // ── Single finger pan (X + Y) ──
+      const dx = ts[0].clientX - touchStartX;
+      const dy = ts[0].clientY - touchStartY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) touchMoved = true;
+
+      const chartW      = width - margin.left - margin.right;
+      const pxPerCandle = Math.max(1, chartW / viewCount);
+      viewOffset = touchStartOff + Math.round(-dx / pxPerCandle);
+      clampViewOffset();
+
+      if (yScale) {
+        const chartH     = height - margin.top - margin.bottom;
+        const priceRange = yScale.domain()[1] - yScale.domain()[0];
+        yPanOffset = touchStartYOff + dy * (priceRange / chartH);
+      }
+      renderChart();
+      updateZoomLabel();
+    }
+  }, { passive: false });
+
+  container.addEventListener("touchend", e => {
+    e.preventDefault();
+    lastPinchDist = null;
+    const ts = getTouches(e);
+    if (ts.length < 2) lastPinchDist = null;
+    if (ts.length === 1) {
+      lastTouchX = ts[0].clientX;
+      lastTouchY = ts[0].clientY;
+    } else {
+      lastTouchX = null;
+      lastTouchY = null;
+    }
+    // Tap to place hline/zone (only if finger didn't move much)
+    if (ts.length === 0 && !touchMoved && e.changedTouches.length) {
+      const t    = e.changedTouches[0];
+      const rect = container.getBoundingClientRect();
+      const mx   = t.clientX - rect.left;
+      const my   = t.clientY - rect.top;
+      if (activeTool === "hline" && yScale) {
+        addHline(yScale.invert(my), activeColor);
+      } else if (activeTool === "zone" && drawingZone && yScale) {
+        placeZoneLine(yScale.invert(my), drawingZone);
+      }
+    }
+    touchMoved = false;
+  }, { passive: false });
+
+})();
+
+// ═══════════════════════════════════════════════════════════════
+//  SERVICE WORKER  (PWA offline support)
+// ═══════════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(r => console.log('SW registered:', r.scope))
+      .catch(e => console.log('SW failed:', e));
+  });
+}
+
+</script>
+</body>
+</html>
